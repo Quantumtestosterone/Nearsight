@@ -123,4 +123,6 @@ Desktop.ini
 *.db
 
 # Project-specific
+gptdoc.md
+
 # Add any other files or directories specific to your project that shouldn't be tracked
