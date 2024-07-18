@@ -1,6 +1,6 @@
 # Nearsight_commander
 
-An intelligent desktop assistant that analyzes your screen and responds to queries using OpenAI's GPT-4 vision model.
+An intelligent desktop assistant that analyzes your screen and responds to queries using OpenAI's GPT4o-mini vision model.
 
 ## Quick Start
 
