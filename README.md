@@ -4,7 +4,7 @@ An intelligent desktop assistant that analyzes your screen and responds to queri
 
 ## Quick Start
 
-1. Clone the repository:git clone https://github.com/yourusername/ai-desktop-assistant.git
+1. Clone the repository:git clone 
 2. Create a `.env` file in the project root and add your OpenAI API key:OPENAI_API_KEY=your_api_key_here
 3. Double-click `run.bat` to set up the environment and launch the application.
 
