@@ -6,47 +6,39 @@ from openai import OpenAI
 import pyautogui
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, 
-                             QWidget, QLabel, QLineEdit, QGroupBox, QGridLayout, QScrollArea)
-from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap, QImage, QColor
-from PIL import Image
+                             QWidget, QLabel, QLineEdit, QGroupBox, QGridLayout, QScrollArea, QRubberBand, QComboBox)
+from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal, QRect, QPoint
+from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen
+from PIL import Image, ImageDraw, ImageFont
 
 load_dotenv()
 client = OpenAI()
 
-class AnalysisThread(QThread):
-    analysis_complete = pyqtSignal(str, float, float, float)
+class ScreenshotArea(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setGeometry(100, 100, 512, 512)  # Initial size
+        self.rubberband = QRubberBand(QRubberBand.Rectangle, self)
+        self.rubberband.setGeometry(self.rect())
+        self.rubberband.show()
 
-    def __init__(self, screenshot, message, system_prompt, conversation_history):
-        super().__init__()
-        self.screenshot = screenshot
-        self.message = message
-        self.system_prompt = system_prompt
-        self.conversation_history = conversation_history
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(QPen(Qt.red, 2, Qt.SolidLine))
+        painter.drawRect(self.rect())
 
-    def run(self):
-        start_time = time.perf_counter()
-        
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-        ] + self.conversation_history
+    def mousePressEvent(self, event):
+        self.offset = event.pos()
 
-        analysis_start = time.perf_counter()
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            self.move(self.mapToParent(event.pos() - self.offset))
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            max_tokens=300,
-        )
-        analysis = response.choices[0].message.content
-
-        end_time = time.perf_counter()
-
-        screenshot_time = (analysis_start - start_time) * 1000
-        analysis_time = (end_time - analysis_start) * 1000
-        total_time = (end_time - start_time) * 1000
-
-        self.analysis_complete.emit(analysis, screenshot_time, analysis_time, total_time)
+    def resize_area(self, size):
+        self.setGeometry(self.x(), self.y(), size[0], size[1])
+        self.rubberband.setGeometry(self.rect())
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -80,10 +72,17 @@ class MainWindow(QMainWindow):
         self.send_message_button.clicked.connect(self.send_message)
         self.clear_history_button = QPushButton("Clear History")
         self.clear_history_button.clicked.connect(self.clear_history)
+        self.toggle_screenshot_area_button = QPushButton("Toggle Screenshot Area")
+        self.toggle_screenshot_area_button.clicked.connect(self.toggle_screenshot_area)
+        self.screenshot_size_combo = QComboBox()
+        self.screenshot_size_combo.addItems(["Low (512x512)", "Medium (768x768)", "High (1024x1024)"])
+        self.screenshot_size_combo.currentIndexChanged.connect(self.change_screenshot_size)
         control_layout.addWidget(self.auto_button, 0, 0)
         control_layout.addWidget(self.show_screen_button, 0, 1)
         control_layout.addWidget(self.send_message_button, 1, 0)
         control_layout.addWidget(self.clear_history_button, 1, 1)
+        control_layout.addWidget(self.toggle_screenshot_area_button, 2, 0)
+        control_layout.addWidget(self.screenshot_size_combo, 2, 1)
         control_group.setLayout(control_layout)
         left_layout.addWidget(control_group)
 
@@ -136,6 +135,9 @@ class MainWindow(QMainWindow):
         self.analysis_thread = None
         self.conversation_history = []
 
+        self.screenshot_area = ScreenshotArea()
+        self.screenshot_area.hide()
+
     def toggle_auto_mode(self):
         self.auto_mode = not self.auto_mode
         if self.auto_mode:
@@ -151,6 +153,16 @@ class MainWindow(QMainWindow):
         if self.show_screen:
             self.display_image(self.capture_screenshot())
 
+    def toggle_screenshot_area(self):
+        if self.screenshot_area.isVisible():
+            self.screenshot_area.hide()
+        else:
+            self.screenshot_area.show()
+
+    def change_screenshot_size(self, index):
+        sizes = [(512, 512), (768, 768), (1024, 1024)]
+        self.screenshot_area.resize_area(sizes[index])
+
     def send_message(self):
         message = self.message_input.toPlainText()
         screenshot = self.capture_screenshot() if self.show_screen else self.create_blank_image()
@@ -163,7 +175,7 @@ class MainWindow(QMainWindow):
             return  # Don't start a new analysis if one is already running
 
         if screenshot is None:
-            screenshot = self.create_blank_image()
+            screenshot = self.capture_screenshot()
         else:
             self.display_image(screenshot)
 
@@ -173,7 +185,13 @@ class MainWindow(QMainWindow):
         user_content = []
         if message:
             user_content.append({"type": "text", "text": message})
-        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{self.image_to_base64(screenshot)}"}})
+        user_content.append({
+            "type": "image_url", 
+            "image_url": {
+                "url": f"data:image/png;base64,{self.image_to_base64(screenshot)}",
+                "detail": "low"
+            }
+        })
         
         self.conversation_history.append({"role": "user", "content": user_content})
         self.text_output.append(f'<span style="color: red; font-weight: bold;">User:</span> {message if message else "[No message]"}<br>[Image attached]<br><br>')
@@ -203,11 +221,28 @@ class MainWindow(QMainWindow):
             self.timer.start(100)  # Small delay before next analysis
 
     def capture_screenshot(self):
-        screenshot = pyautogui.screenshot()
-        return Image.frombytes('RGB', screenshot.size, screenshot.tobytes())
+        if self.screenshot_area.isVisible():
+            screenshot = pyautogui.screenshot(region=(
+                self.screenshot_area.x(),
+                self.screenshot_area.y(),
+                self.screenshot_area.width(),
+                self.screenshot_area.height()
+            ))
+        else:
+            screenshot = pyautogui.screenshot()
+        
+        # Resize to 512x512 for API
+        screenshot = screenshot.resize((512, 512), Image.LANCZOS)
+
+        # Add coordinate overlay
+        draw = ImageDraw.Draw(screenshot)
+        font = ImageFont.truetype("arial.ttf", 12)
+        draw.text((5, 5), f"Size: {screenshot.width}x{screenshot.height}", fill="red", font=font)
+
+        return screenshot
 
     def create_blank_image(self):
-        return Image.new('RGB', (1, 1), color='white')
+        return Image.new('RGB', (512, 512), color='white')
 
     def image_to_base64(self, image):
         buffered = io.BytesIO()
@@ -223,6 +258,40 @@ class MainWindow(QMainWindow):
         self.conversation_history = []
         self.text_output.clear()
         self.text_output.append("Conversation history cleared.<br>")
+
+class AnalysisThread(QThread):
+    analysis_complete = pyqtSignal(str, float, float, float)
+
+    def __init__(self, screenshot, message, system_prompt, conversation_history):
+        super().__init__()
+        self.screenshot = screenshot
+        self.message = message
+        self.system_prompt = system_prompt
+        self.conversation_history = conversation_history
+
+    def run(self):
+        start_time = time.perf_counter()
+        
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+        ] + self.conversation_history
+
+        analysis_start = time.perf_counter()
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=300,
+        )
+        analysis = response.choices[0].message.content
+
+        end_time = time.perf_counter()
+
+        screenshot_time = (analysis_start - start_time) * 1000
+        analysis_time = (end_time - analysis_start) * 1000
+        total_time = (end_time - start_time) * 1000
+
+        self.analysis_complete.emit(analysis, screenshot_time, analysis_time, total_time)
 
 def main():
     app = QApplication(sys.argv)
