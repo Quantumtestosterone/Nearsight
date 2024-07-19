@@ -17,7 +17,7 @@ An intelligent desktop assistant that analyzes your screen and responds to queri
 
 ## Roadmap
 
-- Reduce inference time to under 5 seconds
+- Reduce inference time to under 1 second
 - Implement JSON-formatted responses for easier parsing
 - Add mouse and keyboard control functions
 - Integrate text-to-speech for AI responses
@@ -27,3 +27,4 @@ An intelligent desktop assistant that analyzes your screen and responds to queri
 - Optimize image size to reduce token usage
 - Overlay a coordinate system for precise mouse movements
 
+** update , gpt4o seems to have faster response time, currently were at 3-4 secounds compared to 5-6 secounds from gpt4o mini, no idea why. 
